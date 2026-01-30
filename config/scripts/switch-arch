@@ -128,8 +128,9 @@ select_prefix()
             return
         fi
     done
-    echo "ERROR: no $* cross-compiler found !" 1>&2
-    exit 1
+
+    #echo "ERROR: no $* cross-compiler found !" 1>&2
+    #exit 1
 }
 
 config_set_boolean()
@@ -168,7 +169,7 @@ fi
 target_list=""
 for target in $*; do
     case $target in
-        unix-*|builtin-*|plain-*|mol-ppc|briq-ppc|pearpc-ppc|qemu-ppc|qemu-ppc64|xbox-x86)
+        unix-*|builtin-*|plain-*|mol-ppc|briq-ppc|pearpc-ppc|qemu-ppc|qemu-ppc64|xbox-x86|xenon-ppc64)
         target_list="$target_list $target"
         ;;
         cross-*)
@@ -204,6 +205,7 @@ for ARCH in $arch_list; do
     pearpc="no"
     qemu="no"
     xbox="no"
+    xenon="no"
     cross="no"
 
     for target in $target_list; do
@@ -230,6 +232,9 @@ for ARCH in $arch_list; do
             ;;
             xbox-x86)
             xbox="yes"
+            ;;
+            xenon-ppc64)
+            xenon="yes"
             ;;
             builtin-sparc32)
             builtin="yes"
@@ -358,6 +363,9 @@ for ARCH in $arch_list; do
     if [ "$xbox" = "yes" ]; then
         mkdir -p $OBJDIR/target/arch/x86/xbox
     fi
+    if [ "$xenon" = "yes" ]; then
+        mkdir -p $OBJDIR/target/arch/x86/xenon
+    fi
     echo "ok."
 
     ODIR=$OBJDIR
@@ -397,6 +405,9 @@ for ARCH in $arch_list; do
     fi
     if [ "$xbox" = "yes" ]; then
         config_set_boolean CONFIG_XBOX >> $ODIR/config.xml
+    fi
+    if [ "$xenon" = "yes" ]; then
+        config_set_boolean CONFIG_XENON >> $ODIR/config.xml
     fi
     if [ "$targetbigendian" = "yes" ]; then
         config_set_boolean CONFIG_BIG_ENDIAN >> $ODIR/config.xml

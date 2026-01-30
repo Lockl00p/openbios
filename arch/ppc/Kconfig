@@ -6,6 +6,11 @@ config PPC
 	help
 	  Building for PPC hardware.
 
+config XENON
+	bool "Xbox 360"
+	help
+	  Build an image for the Xbox 360
+
 config BIG_ENDIAN
 	bool
 	default y
