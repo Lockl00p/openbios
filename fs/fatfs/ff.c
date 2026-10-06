@@ -230,7 +230,7 @@
 #define GPTE_Flags			48		/* GPT PTE: Partition flags (QWORD) */
 #define GPTE_Name			56		/* GPT PTE: Partition name */
 
-
+#define NOT_UNSUPPORTED_APM_PARTS			strncmp(curPart->type,"Apple_Boot",10) && strncmp(curPart->type,"Apple_Driver",12) && strncmp(curPart->type,"Apple_Driver",12) && strncmp(curPart->type,"Apple_Free",10) && strncmp(curPart->type,"Apple_Extra",11)
 /* Post process on fatal error in the file operations */
 #define ABORT(fs, res)		{ fp->err = (BYTE)(res); LEAVE_FF(fs, res); }
 
@@ -613,9 +613,7 @@ typedef struct {
     char name[32];
     char type[32];
     //We don't need the rest.'
-}__attribute__((__packed__)) APM_PARTITION_ENTRY;
-
-
+} __attribute__((__packed__)) APM_PARTITION_ENTRY;
 
 
 /*--------------------------------------------------------------------------
@@ -3429,26 +3427,25 @@ static UINT find_volume (	/* Returns BS status found in the hosting drive */
 	} while (part == 0 && fmt >= 2 && ++i < 4);
 
     //Check if Using Apple Partition Map
-    APM_PARTITION_ENTRY* curPart;
+	APM_PARTITION_ENTRY* curPart;
     move_window(fs,0);
-    if(fs->win[0] == 'E' && fs->win[1] == 'R'){ //Yep, it is!
+    if (fs->win[0] == 'E' && fs->win[1] == 'R') { //Yep, it is!
         WORD blockSize = ld_B16(fs->win + 2); // where the blockSize argument is;
-        WORD secSize = FF_MAX_SS;        
+        WORD secSize = FF_MAX_SS;
         #if FF_MAX_SS != FF_MIN_SS
         secSize = fs->ssize; //Thankfully, here we are guaranteed multiples of 512.
         #endif
         DWORD numParts = 10; // will Change
-        for(DWORD curBlock = 1; curBlock < numParts; curBlock++){
+        for (DWORD curBlock = 1; curBlock < numParts; curBlock++) {
             QWORD curSector = curBlock * blockSize / secSize;
-            WORD z = (curBlock * blockSize % secSize)/512;
+            WORD z = (curBlock * blockSize % secSize) / 512;
             move_window(fs,curSector); //can't minimize these since fmt changes when we check_fs
-            curPart = (APM_PARTITION_ENTRY*) (fs->win + 512*z); //window must be 512 bytes+ and this struct is less
-            numParts = curPart->numParts;         
-            if(strncmp(curPart->type,"Apple_Boot",10) && strncmp(curPart->type,"Apple_Driver",12)
-&& strncmp(curPart->type,"Apple_Driver",12) && strncmp(curPart->type,"Apple_Free",10) && strncmp(curPart->type,"Apple_Extra",11)){
+            curPart = (APM_PARTITION_ENTRY*) (fs->win + 512 * z); //window must be 512 bytes+ and this struct is less
+            numParts = curPart->numParts;
+            if (NOT_UNSUPPORTED_APM_PARTS) {
                 //This could be what we're looking for!
-                fmt = check_fs(fs,curSector * secSize / 512 + z);
-                if(fmt < 2){return fmt;}
+                fmt = check_fs(fs, curSector * secSize / 512 + z);
+                if(fmt < 2) return fmt;
             }
             
         }
