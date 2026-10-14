@@ -19,9 +19,11 @@
 /----------------------------------------------------------------------------*/
 
 
-#include <string.h>
+
 #include "ff.h"			/* Declarations of FatFs API */
 #include "diskio.h"		/* Declarations of device I/O functions */
+#include "libc/vsprintf.h"
+#include "libopenbios/console.h"
 
 
 /*--------------------------------------------------------------------------
@@ -647,6 +649,7 @@ static DWORD ld_32 (const BYTE* ptr)	/* Load a 4-byte little-endian word */
 	return rv;
 }
 
+/*
 static WORD ld_B16 (const BYTE* ptr) //Load a 2 byte big-endian word. So kinda just load a 2 byte word in
 {
     WORD rv;
@@ -655,7 +658,7 @@ static WORD ld_B16 (const BYTE* ptr) //Load a 2 byte big-endian word. So kinda j
     return rv;
 }
 
-/*
+
 static DWORD ld_B32 (const BYTE* ptr) //Load a 2 byte big-endian word. So kinda just load a 2 byte word in
 {
     DWORD rv;
@@ -1127,6 +1130,7 @@ static FRESULT move_window (	/* Returns FR_OK or FR_DISK_ERR */
 			fs->winsect = sect;
 		}
 	}
+	__asm__("sync");
 	return res;
 }
 
@@ -3430,21 +3434,18 @@ static UINT find_volume (	/* Returns BS status found in the hosting drive */
 	APM_PARTITION_ENTRY* curPart;
     move_window(fs,0);
     if (fs->win[0] == 'E' && fs->win[1] == 'R') { //Yep, it is!
-        WORD blockSize = ld_B16(fs->win + 2); // where the blockSize argument is;
-        WORD secSize = FF_MAX_SS;
-        #if FF_MAX_SS != FF_MIN_SS
-        secSize = fs->ssize; //Thankfully, here we are guaranteed multiples of 512.
-        #endif
+		curPart = (APM_PARTITION_ENTRY*) (fs->win); //technically not the drive descriptor, but reserved0 is where the blocksize would be.
+        WORD blockSize = curPart->reserved0;
         DWORD numParts = 10; // will Change
+		QWORD curLBA = 0;
         for (DWORD curBlock = 1; curBlock < numParts; curBlock++) {
-            QWORD curSector = curBlock * blockSize / secSize;
-            WORD z = (curBlock * blockSize % secSize) / 512;
-            move_window(fs,curSector); //can't minimize these since fmt changes when we check_fs
-            curPart = (APM_PARTITION_ENTRY*) (fs->win + 512 * z); //window must be 512 bytes+ and this struct is less
+            curLBA = (curBlock * blockSize) / 512;
+            move_window(fs,curLBA); //can't minimize these since fs changes when we check_fs
+            curPart = (APM_PARTITION_ENTRY*) (fs->win); //window must be 512 bytes+ and this struct is less
             numParts = curPart->numParts;
             if (NOT_UNSUPPORTED_APM_PARTS) {
                 //This could be what we're looking for!
-                fmt = check_fs(fs, curSector * secSize / 512 + z);
+                fmt = check_fs(fs, curPart->startBlock * blockSize/512);
                 if(fmt < 2) return fmt;
             }
             
