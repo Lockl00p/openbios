@@ -232,7 +232,9 @@
 #define GPTE_Flags			48		/* GPT PTE: Partition flags (QWORD) */
 #define GPTE_Name			56		/* GPT PTE: Partition name */
 
-#define NOT_UNSUPPORTED_APM_PARTS			strncmp(curPart->type,"Apple_Boot",10) && strncmp(curPart->type,"Apple_Driver",12) && strncmp(curPart->type,"Apple_Driver",12) && strncmp(curPart->type,"Apple_Free",10) && strncmp(curPart->type,"Apple_Extra",11)
+//Apple_HFS can have a FAT32 partition, and for some reason, partitioning software can put a FAT32 Part in Apple_UFS
+#define NOT_UNSUPPORTED_APM_PARTS			strncmp(curPart->type,"Apple_",6) || curPart->type[6] == 'U' || curPart->type[6] == 'H'
+
 /* Post process on fatal error in the file operations */
 #define ABORT(fs, res)		{ fp->err = (BYTE)(res); LEAVE_FF(fs, res); }
 
@@ -1130,7 +1132,7 @@ static FRESULT move_window (	/* Returns FR_OK or FR_DISK_ERR */
 			fs->winsect = sect;
 		}
 	}
-	__asm__("sync");
+	__asm__("sync"); //ensure all data has been transfered before moving on.
 	return res;
 }
 
@@ -3399,6 +3401,34 @@ static UINT find_volume (	/* Returns BS status found in the hosting drive */
 
 	/* Sector 0 is not an FAT VBR or forced partition number wants a partition */
 
+    //Check if Using Apple Partition Map
+	APM_PARTITION_ENTRY* curPart;
+    move_window(fs,0);
+    if (fs->win[0] == 'E' && fs->win[1] == 'R') { //Yep, it is!
+		curPart = (APM_PARTITION_ENTRY*) (fs->win); //technically not the drive descriptor, but reserved0 is where the blocksize would be.
+        WORD blockSize = curPart->reserved0;
+        
+        //Grab the first partition and set numParts using it.
+        move_window(fs,blockSize/512);
+        curPart = (APM_PARTITION_ENTRY*) (fs->win); //window must be 512 bytes+ and this struct is less
+        DWORD numParts = curPart->numParts;
+        if (part >= numParts) return 3; //There are only numParts-1 real partitions here. If part >= numparts, it won't be found.
+        DWORD curBlock = part ? part : 1;
+
+        //if part > 0, we're looking for a specific partition and hence only need to scan that partition. So we set numParts to curBlock + 1 so the loop only runs once.
+        for (numParts = part ? curBlock+1 : numParts ; curBlock < numParts; curBlock++) {
+            move_window(fs,(curBlock * blockSize) / 512); //can't minimize these since fs changes when we check_fs
+            curPart = (APM_PARTITION_ENTRY*) (fs->win);
+            
+            if (NOT_UNSUPPORTED_APM_PARTS) {
+                //This could be what we're looking for!
+                fmt = check_fs(fs, curPart->startBlock * blockSize/512);
+                if(fmt < 2) return fmt;
+            }
+            
+        }
+        return 3; //Not found
+    }
 #if FF_LBA64
 	if (fs->win[MBR_Table + PTE_System] == 0xEE) {	/* GPT protective MBR? */
 		DWORD n_ent, v_ent, ofs;
@@ -3421,37 +3451,16 @@ static UINT find_volume (	/* Returns BS status found in the hosting drive */
 		return 3;	/* Not found */
 	}
 #endif
-	if (FF_MULTI_PARTITION && part > 4) return 3;	/* MBR has 4 partitions max */
 	for (i = 0; i < 4; i++) {		/* Load partition offset in the MBR */
 		mbr_pt[i] = ld_32(fs->win + MBR_Table + i * SZ_PTE + PTE_StLba);
 	}
+    if (FF_MULTI_PARTITION && part > 4) return 3;	/* MBR has 4 partitions max */
 	i = part ? part - 1 : 0;		/* Table index to find first */
 	do {							/* Find an FAT volume */
 		fmt = mbr_pt[i] ? check_fs(fs, mbr_pt[i]) : 3;	/* Check if the partition is FAT */
 	} while (part == 0 && fmt >= 2 && ++i < 4);
 
-    //Check if Using Apple Partition Map
-	APM_PARTITION_ENTRY* curPart;
-    move_window(fs,0);
-    if (fs->win[0] == 'E' && fs->win[1] == 'R') { //Yep, it is!
-		curPart = (APM_PARTITION_ENTRY*) (fs->win); //technically not the drive descriptor, but reserved0 is where the blocksize would be.
-        WORD blockSize = curPart->reserved0;
-        DWORD numParts = 10; // will Change
-		QWORD curLBA = 0;
-        for (DWORD curBlock = 1; curBlock < numParts; curBlock++) {
-            curLBA = (curBlock * blockSize) / 512;
-            move_window(fs,curLBA); //can't minimize these since fs changes when we check_fs
-            curPart = (APM_PARTITION_ENTRY*) (fs->win); //window must be 512 bytes+ and this struct is less
-            numParts = curPart->numParts;
-            if (NOT_UNSUPPORTED_APM_PARTS) {
-                //This could be what we're looking for!
-                fmt = check_fs(fs, curPart->startBlock * blockSize/512);
-                if(fmt < 2) return fmt;
-            }
-            
-        }
-
-    }
+    
 	return fmt;
 }
 
