@@ -3392,16 +3392,9 @@ static UINT find_volume (	/* Returns BS status found in the hosting drive */
 	UINT part		/* Partition to fined = 0:find as SFD and partitions, >0:forced partition number */
 )
 {
-	UINT fmt, i;
-	DWORD mbr_pt[4];
-
-
-	fmt = check_fs(fs, 0);				/* Load sector 0 and check if it is an FAT VBR as SFD format */
-	if (fmt != 2 && (fmt >= 3 || part == 0)) return fmt;	/* Returns if it is an FAT VBR as auto scan, not a BS or disk error */
-
-	/* Sector 0 is not an FAT VBR or forced partition number wants a partition */
-
-    //Check if Using Apple Partition Map
+	UINT fmt;
+    //Check if Using Apple Partition Map. Check first to save some time when launching off a drive
+	//(if launching off a mac os drive, it must use APM, so this saves a bit of time for those booting off of an actual install.)
 	APM_PARTITION_ENTRY* curPart;
     move_window(fs,0);
     if (fs->win[0] == 'E' && fs->win[1] == 'R') { //Yep, it is!
@@ -3409,15 +3402,20 @@ static UINT find_volume (	/* Returns BS status found in the hosting drive */
         WORD blockSize = curPart->reserved0;
         
         //Grab the first partition and set numParts using it.
-        move_window(fs,blockSize/512);
+        if(move_window(fs,blockSize/512) != FR_OK){return 4;}
         curPart = (APM_PARTITION_ENTRY*) (fs->win); //window must be 512 bytes+ and this struct is less
         DWORD numParts = curPart->numParts;
-        if (part >= numParts) return 3; //There are only numParts-1 real partitions here. If part >= numparts, it won't be found.
-        DWORD curBlock = part ? part : 1;
 
-        //if part > 0, we're looking for a specific partition and hence only need to scan that partition. So we set numParts to curBlock + 1 so the loop only runs once.
-        for (numParts = part ? curBlock+1 : numParts ; curBlock < numParts; curBlock++) {
-            move_window(fs,(curBlock * blockSize) / 512); //can't minimize these since fs changes when we check_fs
+		if(part){
+			if (part >= numParts) return 3;
+			//We only need to check one partition, and we know where it is. So just check it and return the value of check_fs!
+			if(move_window(fs,((part + 1) * blockSize) / 512) != FR_OK) return 4;
+			curPart = (APM_PARTITION_ENTRY*) (fs->win);
+			return check_fs(fs, curPart->startBlock * blockSize/512);
+		}
+
+        for (DWORD curBlock = 2; curBlock <= numParts; curBlock++) {
+            if(move_window(fs,(curBlock * blockSize) / 512) != FR_OK) return 4; 
             curPart = (APM_PARTITION_ENTRY*) (fs->win);
             
             if (NOT_UNSUPPORTED_APM_PARTS) {
@@ -3429,6 +3427,15 @@ static UINT find_volume (	/* Returns BS status found in the hosting drive */
         }
         return 3; //Not found
     }
+
+	UINT i;
+	
+	DWORD mbr_pt[4];
+
+	fmt = check_fs(fs, 0);				/* Load sector 0 and check if it is an FAT VBR as SFD format */
+	if (fmt != 2 && (fmt >= 3 || part == 0)) return fmt;	/* Returns if it is an FAT VBR as auto scan, not a BS or disk error */
+	/* Sector 0 is not an FAT VBR or forced partition number wants a partition */
+
 #if FF_LBA64
 	if (fs->win[MBR_Table + PTE_System] == 0xEE) {	/* GPT protective MBR? */
 		DWORD n_ent, v_ent, ofs;
