@@ -3407,7 +3407,7 @@ static UINT find_volume (	/* Returns BS status found in the hosting drive */
         DWORD numParts = curPart->numParts;
 
 		if(part){
-			if (part >= numParts) return 3;
+			if (part > numParts) return 3;
 			//We only need to check one partition, and we know where it is. So just check it and return the value of check_fs!
 			if(move_window(fs,(part * blockSize) / 512) != FR_OK) return 4;
 			curPart = (APM_PARTITION_ENTRY*) (fs->win);
